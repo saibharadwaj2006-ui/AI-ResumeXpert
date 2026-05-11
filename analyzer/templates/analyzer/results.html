@@ -1,0 +1,586 @@
+{% extends 'analyzer/base.html' %}
+{% block title %}Analysis Results - {{ resume.filename }}{% endblock %}
+
+{% block extra_css %}
+.score-ring {
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    border: 6px solid;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+}
+
+.tab-nav {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    display: flex; gap: 4px;
+    overflow-x: auto;
+}
+
+.tab-btn {
+    flex: 1; min-width: 120px;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: 9px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 500;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.tab-btn.active {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.tab-content-panel { display: none; }
+.tab-content-panel.active { display: block; }
+
+.question-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.2s;
+}
+
+.question-card:hover { border-color: var(--primary); }
+
+.difficulty-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+}
+
+.diff-easy { background: rgba(6,214,160,0.15); color: var(--accent); }
+.diff-medium { background: rgba(244,162,97,0.15); color: var(--warning); }
+.diff-hard { background: rgba(247,37,133,0.15); color: var(--danger); }
+
+.rag-demo {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.chunk-display {
+    background: var(--dark);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+        <div>
+            <a href="{% url 'home' %}" class="btn btn-outline-light btn-sm mb-2">
+                <i class="bi bi-arrow-left me-1"></i> New Analysis
+            </a>
+            <h1 class="fw-700 mb-1 fs-3">
+                <span style="color: var(--text-muted);">📑</span> {{ resume.filename }}
+            </h1>
+            <small class="text-muted">Analyzed {{ resume.uploaded_at|date:"F d, Y H:i" }}</small>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'history' %}" class="btn btn-outline-light btn-sm">
+                <i class="bi bi-clock-history me-1"></i>History
+            </a>
+        </div>
+    </div>
+    
+    <!-- ATS Score Summary Row -->
+    <div class="row g-4 mb-4">
+        <!-- Score Card -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body text-center py-4">
+                    <div class="score-ring mx-auto mb-3" style="border-color: 
+                        {% if ats_score >= 75 %}var(--accent)
+                        {% elif ats_score >= 50 %}var(--warning)
+                        {% else %}var(--danger){% endif %};">
+                        <div class="mono" style="font-size: 2.5rem; font-weight: 700; line-height: 1;">
+                            {{ ats_score|floatformat:0 }}
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">/100</div>
+                    </div>
+                    <h5 class="fw-700 mb-1" style="color: 
+                        {% if ats_score >= 75 %}var(--accent)
+                        {% elif ats_score >= 50 %}var(--warning)
+                        {% else %}var(--danger){% endif %};">
+                        Grade: {{ ats_grade }} — {{ ats_label }}
+                    </h5>
+                    <p class="text-muted small">
+                        {% with ats_data.overall_feedback as feedback %}
+                            {{ feedback }}
+                        {% endwith %}
+                    </p>
+                    
+                    {% if not ai_configured %}
+                    <div class="alert alert-warning py-2 mt-2 text-start small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Add <code>GEMINI_API_KEY</code> to <code>.env</code> for AI-powered suggestions.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Score Breakdown -->
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h6 class="mb-0 fw-600">📊 ATS Score Breakdown</h6>
+                </div>
+                <div class="card-body">
+                    {% with ats_data.breakdown as bd %}
+                    {% if bd %}
+                    
+                    {% with bd.skills as s %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>🔍 Skills Match</span>
+                            <span class="mono text-accent">{{ s.score }}/{{ s.max }}</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: {% widthratio s.score s.max 100 %}%; background: var(--accent);"></div>
+                        </div>
+                        <small class="text-muted">{{ s.feedback }}</small>
+                    </div>
+                    {% endwith %}
+                    
+                    {% with bd.sections as s %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>📋 Section Presence</span>
+                            <span class="mono text-accent">{{ s.score }}/{{ s.max }}</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: {% widthratio s.score s.max 100 %}%; background: var(--primary-light);"></div>
+                        </div>
+                        <small class="text-muted">{{ s.feedback }}</small>
+                    </div>
+                    {% endwith %}
+                    
+                    {% with bd.keywords as s %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>🔑 Keyword Density</span>
+                            <span class="mono text-accent">{{ s.score }}/{{ s.max }}</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: {% widthratio s.score s.max 100 %}%; background: #a78bfa;"></div>
+                        </div>
+                        <small class="text-muted">{{ s.feedback }}</small>
+                    </div>
+                    {% endwith %}
+                    
+                    {% with bd.length as s %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>📏 Resume Length</span>
+                            <span class="mono text-accent">{{ s.score }}/{{ s.max }}</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: {% widthratio s.score s.max 100 %}%; background: var(--warning);"></div>
+                        </div>
+                        <small class="text-muted">{{ s.feedback }}</small>
+                    </div>
+                    {% endwith %}
+                    
+                    {% with bd.formatting as s %}
+                    <div class="mb-0">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>✨ Formatting Quality</span>
+                            <span class="mono text-accent">{{ s.score }}/{{ s.max }}</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: {% widthratio s.score s.max 100 %}%; background: var(--danger);"></div>
+                        </div>
+                        <small class="text-muted">{{ s.feedback }}</small>
+                    </div>
+                    {% endwith %}
+                    
+                    {% endif %}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tab Navigation -->
+    <div class="tab-nav mb-4">
+        <button class="tab-btn active" onclick="showTab('skills')">
+            🔍 Skills ({{ skills_list|length }})
+        </button>
+        <button class="tab-btn" onclick="showTab('suggestions')">
+            ✨ AI Suggestions
+        </button>
+        <button class="tab-btn" onclick="showTab('interview')">
+            🎯 Interview Questions
+        </button>
+        <button class="tab-btn" onclick="showTab('rag')">
+            🧠 RAG Pipeline
+        </button>
+        <button class="tab-btn" onclick="showTab('text')">
+            📄 Extracted Text
+        </button>
+    </div>
+    
+    <!-- Skills Tab -->
+    <div id="tab-skills" class="tab-content-panel active">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">Skills Detected by Category</h6>
+                    </div>
+                    <div class="card-body">
+                        {% for category, cat_skills in skills_by_category.items %}
+                        <div class="mb-3">
+                            <small class="text-muted fw-600 d-block mb-2">{{ category }}</small>
+                            <div>
+                                {% for skill in cat_skills %}
+                                <span class="skill-badge">{{ skill }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% empty %}
+                        <p class="text-muted">No skills detected. Ensure your resume has a dedicated Skills section.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">⚠️ Missing Key Skills</h6>
+                    </div>
+                    <div class="card-body">
+                        {% for skill in missing_skills %}
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span style="color: var(--warning);">+</span>
+                            <span class="small">{{ skill }}</span>
+                        </div>
+                        {% empty %}
+                        <p class="text-muted small">Great job! All key skills found.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body text-center py-3">
+                        <div class="mono fs-2 text-accent">{{ skills_list|length }}</div>
+                        <div class="text-muted small">Total Skills Found</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- AI Suggestions Tab -->
+    <div id="tab-suggestions" class="tab-content-panel">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-600">✨ AI-Generated Improvement Suggestions</h6>
+                {% if ai_configured %}
+                <span class="badge" style="background: rgba(6,214,160,0.15); color: var(--accent);">
+                    <i class="bi bi-stars me-1"></i>Gemini AI
+                </span>
+                {% else %}
+                <span class="badge bg-secondary">Template Mode</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="ai-content">
+                    {{ resume.ai_suggestions|linebreaks }}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Interview Questions Tab -->
+    <div id="tab-interview" class="tab-content-panel">
+        {% with resume.get_interview_questions as qs %}
+        
+        <!-- Technical Questions -->
+        {% if qs.technical_questions %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0 fw-600">💻 Technical Questions</h6>
+            </div>
+            <div class="card-body">
+                {% for q in qs.technical_questions %}
+                <div class="question-card">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <span class="small fw-600">{{ forloop.counter }}. {{ q.question }}</span>
+                        <div class="d-flex gap-1 ms-2 flex-shrink-0">
+                            {% if q.category %}<span class="difficulty-badge diff-medium">{{ q.category }}</span>{% endif %}
+                            {% if q.difficulty %}
+                            <span class="difficulty-badge 
+                                {% if q.difficulty == 'Easy' %}diff-easy
+                                {% elif q.difficulty == 'Hard' %}diff-hard
+                                {% else %}diff-medium{% endif %}">
+                                {{ q.difficulty }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Behavioral Questions -->
+        {% if qs.behavioral_questions %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0 fw-600">🤝 Behavioral Questions</h6>
+            </div>
+            <div class="card-body">
+                {% for q in qs.behavioral_questions %}
+                <div class="question-card">
+                    <div class="fw-500 small mb-1">{{ forloop.counter }}. {{ q.question }}</div>
+                    {% if q.tip %}
+                    <small class="text-muted">💡 {{ q.tip }}</small>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="row g-4">
+            <!-- Project Questions -->
+            {% if qs.project_questions %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">🚀 Project Questions</h6>
+                    </div>
+                    <div class="card-body">
+                        {% for q in qs.project_questions %}
+                        <div class="question-card">
+                            <div class="fw-500 small mb-1">{{ q.question }}</div>
+                            {% if q.purpose %}<small class="text-muted">🎯 {{ q.purpose }}</small>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- HR Questions -->
+            {% if qs.hr_questions %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">👔 HR Questions</h6>
+                    </div>
+                    <div class="card-body">
+                        {% for q in qs.hr_questions %}
+                        <div class="question-card">
+                            <div class="fw-500 small">{{ q.question }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endwith %}
+    </div>
+    
+    <!-- RAG Pipeline Tab -->
+    <div id="tab-rag" class="tab-content-panel">
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">🧠 RAG Pipeline Explorer</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Query the RAG pipeline to see which resume chunks are retrieved for different topics.
+                            This demonstrates how the AI finds relevant context.
+                        </p>
+                        <div class="d-flex gap-2 mb-3">
+                            <input type="text" id="ragQuery" class="form-control" 
+                                   style="background: var(--surface-2); border-color: var(--border); color: var(--text);"
+                                   placeholder="e.g., Python experience, database skills, projects..."
+                                   value="technical skills and programming experience">
+                            <button class="btn btn-primary" onclick="queryRAG()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Quick queries -->
+                        <div class="mb-3 d-flex flex-wrap gap-2">
+                            <button class="btn btn-sm btn-outline-light" onclick="setQuery('work experience')">Work Experience</button>
+                            <button class="btn btn-sm btn-outline-light" onclick="setQuery('education degree')">Education</button>
+                            <button class="btn btn-sm btn-outline-light" onclick="setQuery('projects built')">Projects</button>
+                            <button class="btn btn-sm btn-outline-light" onclick="setQuery('achievements results')">Achievements</button>
+                        </div>
+                        
+                        <div id="ragResult" class="d-none">
+                            <div class="d-flex justify-content-between small text-muted mb-2">
+                                <span>Retrieved Context</span>
+                                <span id="ragMeta"></span>
+                            </div>
+                            <div class="chunk-display" id="ragContext"></div>
+                        </div>
+                        
+                        <div id="ragLoading" class="d-none text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                            Querying vector store...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-5">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-600">⚙️ Pipeline Architecture</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-column gap-2">
+                            <div class="d-flex align-items-center gap-3 p-2 rounded-2" style="background: var(--surface-2);">
+                                <span>📄</span>
+                                <div class="small">
+                                    <div class="fw-600">Chunking</div>
+                                    <div class="text-muted">150 words/chunk, 30 word overlap</div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-3 p-2 rounded-2" style="background: var(--surface-2);">
+                                <span>🔢</span>
+                                <div class="small">
+                                    <div class="fw-600">Embedding</div>
+                                    <div class="text-muted">TF-IDF vectors (lightweight)</div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-3 p-2 rounded-2" style="background: var(--surface-2);">
+                                <span>💾</span>
+                                <div class="small">
+                                    <div class="fw-600">Vector Store</div>
+                                    <div class="text-muted">In-memory (FAISS in production)</div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-3 p-2 rounded-2" style="background: var(--surface-2);">
+                                <span>🔍</span>
+                                <div class="small">
+                                    <div class="fw-600">Retrieval</div>
+                                    <div class="text-muted">Cosine similarity, top-3 chunks</div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-3 p-2 rounded-2" style="background: var(--surface-2);">
+                                <span>✨</span>
+                                <div class="small">
+                                    <div class="fw-600">Generation</div>
+                                    <div class="text-muted">Gemini 1.5 Flash + context</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-body text-center">
+                        <div class="row">
+                            <div class="col-6 border-end" style="border-color: var(--border) !important;">
+                                <div class="mono text-accent fs-4">{{ resume.extracted_text|wordcount }}</div>
+                                <div class="text-muted" style="font-size: 0.7rem;">WORDS INDEXED</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="mono text-accent fs-4">TF-IDF</div>
+                                <div class="text-muted" style="font-size: 0.7rem;">VECTOR TYPE</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Extracted Text Tab -->
+    <div id="tab-text" class="tab-content-panel">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0 fw-600">📄 Extracted Resume Text</h6>
+            </div>
+            <div class="card-body">
+                <pre style="white-space: pre-wrap; word-break: break-word; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-muted); max-height: 500px; overflow-y: auto;">{{ resume.extracted_text }}</pre>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Tab Navigation ────────────────────────────────────────────────────────────
+function showTab(tabName) {
+    document.querySelectorAll('.tab-content-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tabName).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// ── RAG Query ─────────────────────────────────────────────────────────────────
+function setQuery(q) {
+    document.getElementById('ragQuery').value = q;
+    queryRAG();
+}
+
+async function queryRAG() {
+    const query = document.getElementById('ragQuery').value.trim();
+    if (!query) return;
+    
+    document.getElementById('ragLoading').classList.remove('d-none');
+    document.getElementById('ragResult').classList.add('d-none');
+    
+    try {
+        const response = await fetch('/api/rag-query/{{ resume.pk }}/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ query })
+        });
+        
+        const data = await response.json();
+        
+        document.getElementById('ragContext').textContent = data.context || 'No relevant context found.';
+        document.getElementById('ragMeta').textContent = 
+            `${data.pipeline_info?.chunk_count || '?'} chunks indexed · ${data.pipeline_info?.similarity_metric || 'Cosine'} similarity`;
+        document.getElementById('ragResult').classList.remove('d-none');
+    } catch (e) {
+        document.getElementById('ragContext').textContent = 'Error: ' + e.message;
+        document.getElementById('ragResult').classList.remove('d-none');
+    } finally {
+        document.getElementById('ragLoading').classList.add('d-none');
+    }
+}
+</script>
+{% endblock %}
